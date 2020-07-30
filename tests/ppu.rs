@@ -1,4 +1,4 @@
-use nes::{new_mapper, Bus, Cartridge, Controller, Interrupt, Mapper0, CPU, PPU};
+use nes::{new_mapper, Bus, Cartridge, Controller, Interrupt, Mapper0, APU, CPU, PPU};
 use std::path::Path;
 
 #[test]
@@ -9,7 +9,8 @@ fn step() {
     let controller1 = Controller::new();
     let controller2 = Controller::new();
     let ppu = PPU::new(mapper);
-    let bus = Bus::new(ppu, controller1, controller2);
+    let apu = APU::new();
+    let bus = Bus::new(ppu, apu, controller1, controller2);
     let mut cpu = CPU::new(bus);
 
     cpu.reset();

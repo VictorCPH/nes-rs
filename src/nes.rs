@@ -1,4 +1,6 @@
-use crate::{new_mapper, Bus, Controller, Mapper, CPU, PPU, SCAIL, SCREEN_HEIGHT, SCREEN_WIDTH};
+use crate::{
+    new_mapper, Bus, Controller, Mapper, APU, CPU, PPU, SCAIL, SCREEN_HEIGHT, SCREEN_WIDTH,
+};
 use crate::{Button, Interrupt, Result};
 use sdl2::keyboard::{KeyboardState, Scancode};
 use sdl2::pixels::PixelFormatEnum::RGB888;
@@ -44,7 +46,8 @@ impl NES {
         let controller1 = Controller::new();
         let controller2 = Controller::new();
         let ppu = PPU::new(mapper);
-        let bus = Bus::new(ppu, controller1, controller2);
+        let apu = APU::new();
+        let bus = Bus::new(ppu, apu, controller1, controller2);
         let mut cpu = CPU::new(bus);
         cpu.reset();
         Ok(NES { cpu })

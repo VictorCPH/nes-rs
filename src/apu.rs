@@ -158,6 +158,10 @@ impl LengthCounter {
     pub fn activated(&self) -> bool {
         self.counter > 0
     }
+
+    pub fn reset(&mut self) {
+        self.counter = 0
+    }
 }
 
 // https://wiki.nesdev.com/w/index.php/APU_Envelope
@@ -234,7 +238,7 @@ impl Timer {
     pub fn new() -> Self {
         Self {
             period: 0,
-            divider: Divider::new(1790000),
+            divider: Divider::new(1),
         }
     }
 
@@ -373,6 +377,7 @@ struct Pulse {
     timer: Timer,
     sequencer: Sequencer,
     length_counter: LengthCounter,
+    output: u8,
 }
 
 impl Pulse {
@@ -386,6 +391,7 @@ impl Pulse {
             timer: Timer::new(),
             sequencer: Sequencer::new(),
             length_counter: LengthCounter::new(1),
+            output: 0,
         }
     }
 
@@ -410,25 +416,122 @@ impl Pulse {
         self.sequencer.reset();
     }
 
-    pub fn tick(&mut self) -> u8 {
+    pub fn tick(&mut self) {
         if !self.length_counter.activated() || self.timer.silent() {
-            return 0;
+            self.output = 0;
         }
         if self.timer.tick() {
             self.sequencer.tick(self.duty_cycle);
         }
 
         if self.sequencer.output == 1 {
-            self.envelope.volume
+            self.output = self.envelope.volume
         } else {
-            0
+            self.output = 0
         }
+    }
+
+    pub fn silent(&mut self) {
+        self.output = 0
     }
 }
 
 pub struct APU {
     pulse1: Pulse,
     pulse2: Pulse,
+    frame_sequencer: FrameSequencer,
+    irq_enabled: bool,
+}
+
+impl APU {
+    pub fn new() -> Self {
+        Self {
+            pulse1: Pulse::new(1),
+            pulse2: Pulse::new(2),
+            frame_sequencer: FrameSequencer::new(),
+            irq_enabled: false,
+        }
+    }
+
+    pub fn step(&mut self) {
+        if self.pulse1.enabled {
+            self.pulse1.tick();
+        }
+        if self.pulse2.enabled {
+            self.pulse2.tick();
+        }
+    }
+
+    pub fn write_register(&mut self, addr: u16, v: u8) {
+        match addr {
+            0x4000 => self.pulse1.write_ctrl(v),
+            0x4001 => self.pulse1.write_sweep(v),
+            0x4002 => self.pulse1.write_timer_low(v),
+            0x4003 => self.pulse1.write_timer_high(v),
+            0x4004 => self.pulse2.write_ctrl(v),
+            0x4005 => self.pulse2.write_sweep(v),
+            0x4006 => self.pulse2.write_timer_low(v),
+            0x4007 => self.pulse2.write_timer_high(v),
+            0x4015 => self.write_status(v),
+            0x4017 => self.write_frame_sequencer(v),
+            _ => (), //todo!();
+        }
+    }
+
+    // $4015 read
+    pub fn read_status(&mut self) -> u8 {
+        let mut status: u8 = 0;
+        if self.pulse1.length_counter.activated() {
+            status |= 0x01
+        }
+        if self.pulse2.length_counter.activated() {
+            status |= 0x02
+        }
+        // TODO Triangle'length_counter and Noise'length_counter
+        // DMC interrupt (I), frame interrupt (F)
+        status
+    }
+
+    // $4015 write
+    // ---D NT21  Enable DMC (D), noise (N), triangle (T), and pulse channels (2/1)
+    pub fn write_status(&mut self, v: u8) {
+        self.pulse1.enabled = (v & 0x01) == 0x01;
+        self.pulse2.enabled = (v & 0x02) == 0x02;
+
+        if !self.pulse1.enabled {
+            self.pulse1.length_counter.reset();
+            self.pulse1.silent();
+        }
+        if !self.pulse2.enabled {
+            self.pulse2.length_counter.reset();
+            self.pulse2.silent();
+        }
+        // TODO: D, N, T
+    }
+
+    // $4017 write
+    pub fn write_frame_sequencer(&mut self, v: u8) {
+        let evt = self.frame_sequencer.update(v);
+        if evt.contains(SeqEvent::F) {
+            self.irq_enabled = true
+        }
+        if evt.contains(SeqEvent::L) {
+            if self.pulse1.length_counter.enabled {
+                self.pulse1.length_counter.tick();
+            }
+            if self.pulse2.length_counter.enabled {
+                self.pulse2.length_counter.tick();
+            }
+            // TODO Triangle, Noise's length_counter
+            self.pulse1.sweep.tick();
+            self.pulse2.sweep.tick();
+        }
+        if evt.contains(SeqEvent::E) {
+            self.pulse1.envelope.tick();
+            self.pulse2.envelope.tick();
+            // TODO Triangle's linear counter, Noise's envelope
+        }
+    }
 }
 
 macro_rules! test_idle {

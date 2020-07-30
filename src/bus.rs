@@ -1,3 +1,4 @@
+use crate::apu::APU;
 use crate::ppu::PPU;
 use crate::Controller;
 use crate::Mapper;
@@ -8,15 +9,17 @@ pub struct Bus<T: Mapper + ?Sized> {
     pub controller1: RefCell<Controller>,
     pub controller2: RefCell<Controller>,
     pub ppu: RefCell<PPU<T>>,
+    pub apu: RefCell<APU>,
 }
 
 impl<T: Mapper + ?Sized> Bus<T> {
-    pub fn new(ppu: PPU<T>, controller1: Controller, controller2: Controller) -> Self {
+    pub fn new(ppu: PPU<T>, apu: APU, controller1: Controller, controller2: Controller) -> Self {
         Self {
             ram: [0; 0x0800],
             controller1: RefCell::new(controller1),
             controller2: RefCell::new(controller2),
             ppu: RefCell::new(ppu),
+            apu: RefCell::new(apu),
         }
     }
 
@@ -44,7 +47,7 @@ impl<T: Mapper + ?Sized> Bus<T> {
                 .read_register(0x2000 | (addr & 0x0007)),
             0x4000..=0x4013 => 0,
             0x4014 => todo!(),
-            0x4015 => todo!(),
+            0x4015 => self.apu.borrow_mut().read_status(),
             0x4016 => self.controller1.borrow_mut().read(),
             0x4017 => self.controller2.borrow_mut().read(),
             0x4018..=0x401f => 0, // normally disabled, maybe should return Err
@@ -63,7 +66,7 @@ impl<T: Mapper + ?Sized> Bus<T> {
                 .ppu
                 .borrow_mut()
                 .write_register(0x2000 | (addr & 0x0007), v),
-            0x4000..=0x4013 => (), //FIXME todo!(),
+            0x4000..=0x4013 => self.apu.borrow_mut().write_register(addr, v),
             0x4014 => {
                 let mut addr = (v as u16) << 8;
                 let mut oam_data = [0; 256];
